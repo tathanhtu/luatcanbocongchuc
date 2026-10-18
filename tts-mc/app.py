@@ -9,6 +9,7 @@ theo dấu câu (hỏi, cảm thán, ngắt nghỉ...) và chèn khoảng lặng
 """
 import asyncio
 import io
+import os
 import re
 import shutil
 import subprocess
@@ -16,14 +17,35 @@ import tempfile
 from functools import lru_cache
 
 import edge_tts
+import requests
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
 app = Flask(__name__, static_folder="static")
 
+# Giọng "người thật": dùng API trả phí (đặt khoá API qua biến môi trường). Giọng Edge miễn phí làm dự phòng.
+#   OPENAI_API_KEY      -> gpt-4o-mini-tts, nhận chỉ dẫn diễn đạt (ấm áp, truyền cảm...)
+#   ELEVENLABS_API_KEY  -> eleven_multilingual_v2, chỉnh độ ổn định / phong cách
 VOICES = {
-    "hoaimy": {"id": "vi-VN-HoaiMyNeural", "label": "Hoài My – nữ, ấm áp"},
-    "namminh": {"id": "vi-VN-NamMinhNeural", "label": "Nam Minh – nam, trầm ấm"},
+    "coral": dict(provider="openai", id="coral", label="Coral – nữ, ấm áp, thân thiện"),
+    "sage": dict(provider="openai", id="sage", label="Sage – nữ, điềm đạm, sang trọng"),
+    "ash": dict(provider="openai", id="ash", label="Ash – nam, trầm ấm, tự nhiên"),
+    "onyx": dict(provider="openai", id="onyx", label="Onyx – nam, trầm dày, mạnh mẽ"),
+    "el_bella": dict(provider="eleven", id=os.getenv("EL_VOICE_F", "EXAVITQu4vr4xnSDxMaL"), label="ElevenLabs – nữ, mượt, giàu cảm xúc"),
+    "el_adam": dict(provider="eleven", id=os.getenv("EL_VOICE_M", "pNInz6obpgDQGcFmaJgB"), label="ElevenLabs – nam, sâu, chuyên nghiệp"),
+    "hoaimy": dict(provider="edge", id="vi-VN-HoaiMyNeural", label="Hoài My – nữ (miễn phí, Edge)"),
+    "namminh": dict(provider="edge", id="vi-VN-NamMinhNeural", label="Nam Minh – nam (miễn phí, Edge)"),
 }
+KEY_ENV = {"openai": "OPENAI_API_KEY", "eleven": "ELEVENLABS_API_KEY", "edge": None}
+
+# Chỉ dẫn diễn đạt cho gpt-4o-mini-tts theo phong cách
+INSTRUCTIONS = {
+    "mc_am_ap": "Bạn là MC chuyên nghiệp người Việt. Giọng ấm áp, gần gũi, giàu cảm xúc; nhấn nhá tự nhiên, ngắt hơi đúng chỗ, lên giọng khi hỏi, rộn ràng khi cảm thán, chậm rãi trân trọng ở ý quan trọng. Phát âm chuẩn tiếng Việt, không đọc như máy.",
+    "ban_tin": "Phát thanh viên truyền hình chuyên nghiệp: rõ ràng, trang trọng, tin cậy, nhịp đều, ngữ điệu tiếng Việt tự nhiên.",
+    "ke_chuyen": "Người kể chuyện tâm tình, chậm rãi, trầm ấm, có nhịp nghỉ và cảm xúc theo diễn biến câu chuyện, ngữ điệu tiếng Việt tự nhiên.",
+    "soi_dong": "MC sự kiện sôi động, hào hứng, năng lượng cao nhưng vẫn tự nhiên và rõ ràng, ngữ điệu tiếng Việt chuẩn.",
+}
+# ElevenLabs: (stability, style)
+EL_STYLE = {"mc_am_ap": (0.35, 0.45), "ban_tin": (0.6, 0.1), "ke_chuyen": (0.4, 0.5), "soi_dong": (0.25, 0.65)}
 
 # Phong cách: (tốc độ %, cao độ Hz, hệ số nhấn câu hỏi/cảm thán, nghỉ cuối câu, nghỉ dấu phẩy/ngoặc ms)
 STYLES = {
@@ -116,6 +138,54 @@ async def synth(text, voice, style, rate, pitch, volume, expressive):
     return out.getvalue()
 
 
+def chunk_text(text, limit=2800):
+    out, cur = [], ""
+    for sent in split_sentences(text):
+        if cur and len(cur) + len(sent) + 1 > limit:
+            out.append(cur)
+            cur = ""
+        cur = f"{cur} {sent}".strip()
+    if cur:
+        out.append(cur)
+    return out
+
+
+def speed_of(rate):
+    return max(0.7, min(1.3, 1 + rate / 100))
+
+
+def synth_openai(text, voice, style, rate):
+    audio = b""
+    for part in chunk_text(text):
+        r = requests.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
+            json=dict(model="gpt-4o-mini-tts", voice=voice, input=part, instructions=INSTRUCTIONS[style],
+                      response_format="mp3", speed=speed_of(rate)),
+            timeout=120,
+        )
+        r.raise_for_status()
+        audio += r.content
+    return audio
+
+
+def synth_eleven(text, voice_id, style, rate):
+    stability, st = EL_STYLE[style]
+    audio = b""
+    for part in chunk_text(text, 2500):
+        r = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128",
+            headers={"xi-api-key": os.environ["ELEVENLABS_API_KEY"]},
+            json=dict(text=part, model_id="eleven_multilingual_v2", language_code="vi",
+                      voice_settings=dict(stability=stability, similarity_boost=0.8, style=st,
+                                          use_speaker_boost=True, speed=speed_of(rate))),
+            timeout=120,
+        )
+        r.raise_for_status()
+        audio += r.content
+    return audio
+
+
 @app.get("/")
 def index():
     return send_from_directory("static", "index.html")
@@ -124,7 +194,8 @@ def index():
 @app.get("/api/options")
 def options():
     return jsonify(
-        voices=[{"key": k, "label": v["label"]} for k, v in VOICES.items()],
+        voices=[{"key": k, "label": v["label"] + ("" if not KEY_ENV[v["provider"]] or os.getenv(KEY_ENV[v["provider"]]) else " – cần API key"),
+                 "ready": not KEY_ENV[v["provider"]] or bool(os.getenv(KEY_ENV[v["provider"]]))} for k, v in VOICES.items()],
         styles=[{"key": k, "label": v["label"]} for k, v in STYLES.items()],
     )
 
@@ -137,15 +208,24 @@ def speak():
         return jsonify(error="Chưa có văn bản"), 400
     if len(text) > 20000:
         return jsonify(error="Văn bản quá dài (tối đa 20.000 ký tự)"), 400
-    voice = VOICES.get(d.get("voice"), VOICES["hoaimy"])["id"]
+    v = VOICES.get(d.get("voice"), VOICES["coral"])
+    voice = v["id"]
+    env = KEY_ENV[v["provider"]]
+    if env and not os.getenv(env):
+        return jsonify(error=f"Giọng này cần khoá API. Hãy đặt biến môi trường {env} rồi chạy lại."), 400
     style = d.get("style") if d.get("style") in STYLES else "mc_am_ap"
     clamp = lambda v, lo, hi: max(lo, min(hi, int(v or 0)))
     try:
-        audio = asyncio.run(synth(
-            text, voice, style,
-            clamp(d.get("rate"), -50, 50), clamp(d.get("pitch"), -30, 30), clamp(d.get("volume"), -50, 50),
-            bool(d.get("expressive", True)),
-        ))
+        rate = clamp(d.get("rate"), -50, 50)
+        if v["provider"] == "openai":
+            audio = synth_openai(text, voice, style, rate + STYLES[style]["rate"])
+        elif v["provider"] == "eleven":
+            audio = synth_eleven(text, voice, style, rate + STYLES[style]["rate"])
+        else:
+            audio = asyncio.run(synth(
+                text, voice, style, rate, clamp(d.get("pitch"), -30, 30), clamp(d.get("volume"), -50, 50),
+                bool(d.get("expressive", True)),
+            ))
     except Exception as e:  # lỗi mạng / dịch vụ
         return jsonify(error=f"Không tạo được giọng nói: {e}. Hãy kiểm tra kết nối Internet."), 502
     if not audio:
