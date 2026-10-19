@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Studio</title>
+<style>
+:root{--bg:#f4f2f7;--panel:#fff;--ink:#241f2e;--mute:#756c85;--line:#e1dceb;--acc:#5b3fd0;--acc-ink:#fff;--ok:#1f7a55}
+@media (prefers-color-scheme:dark){:root{--bg:#16131d;--panel:#211d2c;--ink:#efeaf7;--mute:#a79fb8;--line:#383248;--acc:#9d86ff;--acc-ink:#17122a;--ok:#5fcf9f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:14px}
+h1{margin:0;font-size:1.6rem}
+.sub{color:var(--mute);margin:2px 0 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:10px;min-width:0}
+.card h2{margin:0;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:14px;align-items:start}
+@media(max-width:900px){.cols{grid-template-columns:minmax(0,1fr)}}
+input,select,textarea,button{font:inherit;color:inherit}
+input[type=text],input[type=password],select,textarea{background:transparent;border:1px solid var(--line);border-radius:9px;padding:8px 10px;min-width:0}
+textarea{width:100%;min-height:230px;resize:vertical}
+button{background:transparent;border:1px solid var(--line);border-radius:9px;padding:7px 14px;cursor:pointer}
+button.main{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600;padding:10px 22px}
+button:disabled{opacity:.5;cursor:wait}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+label{display:block;font-size:.8rem;color:var(--mute)}label b{float:right;color:var(--ink);font-weight:500}
+input[type=range]{width:100%;accent-color:var(--acc)}
+#vlist{display:grid;gap:6px;max-height:520px;overflow:auto}
+.v{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:grid;gap:4px}
+.v.sel{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 10%,transparent)}
+.v .n{font-weight:600}.v .l{font-size:.78rem;color:var(--mute)}
+.tabs button.on{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+#msg{color:#c0392b;min-height:1.3em}
+#cur{font-weight:600}
+.q{color:var(--mute);font-size:.85rem}
+audio{width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>🎙️ Voice Studio</h1><p class="sub">Giọng đọc ElevenLabs cho văn bản tiếng Việt: duyệt thư viện giọng, nghe thử, chọn, tạo và tải MP3.</p></header>
+
+  <div class="card">
+    <h2>Khoá API ElevenLabs</h2>
+    <div class="row">
+      <input type="password" id="key" placeholder="Dán khoá API vào đây" style="flex:1 1 280px" autocomplete="off">
+      <button id="saveKey">Lưu &amp; kiểm tra</button>
+      <span class="q" id="quota"></span>
+    </div>
+    <span class="q">Khoá chỉ lưu trong trình duyệt trên máy bạn và gửi tới ElevenLabs thông qua máy của bạn.</span>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>Văn bản</h2>
+      <textarea id="text" aria-label="Văn bản">Kính thưa quý vị đại biểu, quý vị khách quý! Hôm nay, chúng ta cùng nhau chứng kiến một khoảnh khắc thật đặc biệt. Bạn có biết không? Theo Nghị định số 23/2025/NĐ-CP, có hiệu lực từ ngày 01 tháng 7 năm 2025, mỗi cán bộ, công chức đều phải nắm vững trách nhiệm của mình. Xin một tràng pháo tay thật lớn!</textarea>
+      <div class="row"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="norm" checked> Đọc số, ngày tháng, số hiệu văn bản thành chữ</label><button id="seeNorm">Xem bản sau chuẩn hoá</button><span class="q" id="cnt"></span></div>
+      <div class="grid">
+        <div><label for="model">Mô hình</label><select id="model" style="width:100%">
+          <option value="eleven_multilingual_v2">Multilingual v2 (ổn định, khuyên dùng)</option>
+          <option value="eleven_v3">v3 (biểu cảm nhất)</option>
+          <option value="eleven_flash_v2_5">Flash v2.5 (nhanh, rẻ)</option>
+          <option value="eleven_turbo_v2_5">Turbo v2.5</option></select></div>
+        <div><label for="preset">Phong cách</label><select id="preset" style="width:100%">
+          <option value="mc">MC ấm áp, truyền cảm</option><option value="news">Bản tin trang trọng</option>
+          <option value="story">Kể chuyện</option><option value="lively">Sôi động</option></select></div>
+      </div>
+      <div class="grid">
+        <div><label for="stab">Ổn định <b id="stabv"></b></label><input type="range" id="stab" min="0" max="1" step="0.05"></div>
+        <div><label for="sim">Giống giọng gốc <b id="simv"></b></label><input type="range" id="sim" min="0" max="1" step="0.05"></div>
+        <div><label for="sty">Phong cách / cảm xúc <b id="styv"></b></label><input type="range" id="sty" min="0" max="1" step="0.05"></div>
+        <div><label for="spd">Tốc độ <b id="spdv"></b></label><input type="range" id="spd" min="0.7" max="1.2" step="0.05"></div>
+      </div>
+      <div class="row"><button class="main" id="go">▶ Tạo giọng đọc</button><span>Giọng: <span id="cur">chưa chọn</span></span></div>
+      <div id="msg"></div>
+      <audio id="player" controls hidden></audio>
+      <div class="row"><a id="dl" hidden download="giong-noi.mp3"><button>⬇ Tải MP3</button></a></div>
+    </div>
+
+    <div class="card">
+      <h2>Chọn giọng</h2>
+      <div class="row tabs"><button id="tMine" class="on">Giọng của tôi</button><button id="tLib">Thư viện</button></div>
+      <div class="row"><input type="text" id="vq" placeholder="Tìm theo tên, giới tính, giọng…" style="flex:1 1 150px"><select id="vlang"><option value="vi">Tiếng Việt</option><option value="all">Mọi ngôn ngữ</option></select></div>
+      <div id="vlist"><span class="q">Dán khoá API để xem danh sách giọng.</span></div>
+    </div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const LS=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){}};
+const PRESETS={mc:[.35,.8,.45,1],news:[.6,.8,.1,1],story:[.4,.8,.5,.95],lively:[.25,.8,.65,1.05]};
+let tab='mine',voice=null;try{voice=JSON.parse(LS('el_voice')||'null')}catch(e){}
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path,opt={}){
+  const r=await fetch(path,{...opt,headers:{'Content-Type':'application/json','X-Key':$('key').value.trim(),...(opt.headers||{})}});
+  if(!r.ok){let m=r.statusText;try{m=(await r.json()).error||m}catch(e){}throw new Error(m)}
+  return r;
+}
+function showVoice(){$('cur').textContent=voice?voice.name:'chưa chọn'}
+function setSliders(a){[$('stab').value,$('sim').value,$('sty').value,$('spd').value]=a;['stab','sim','sty','spd'].forEach(i=>$(i+'v').textContent=$(i).value)}
+['stab','sim','sty','spd'].forEach(i=>$(i).oninput=()=>$(i+'v').textContent=$(i).value);
+$('preset').onchange=()=>setSliders(PRESETS[$('preset').value]);
+setSliders(PRESETS.mc);showVoice();
+$('text').oninput=()=>$('cnt').textContent=$('text').value.length.toLocaleString('vi')+' ký tự';$('text').oninput();
+
+$('key').value=LS('el_key')||'';
+$('saveKey').onclick=async()=>{
+  LS('el_key',$('key').value.trim());$('msg').textContent='';
+  try{const q=await (await api('/api/quota')).json();$('quota').textContent=`Đã dùng ${q.used?.toLocaleString('vi')}/${q.limit?.toLocaleString('vi')} ký tự · gói ${q.tier}`;loadVoices()}
+  catch(e){$('quota').textContent='';$('msg').textContent=e.message}
+};
+async function loadVoices(){
+  const box=$('vlist');box.innerHTML='<span class="q">Đang tải…</span>';
+  try{
+    const p=new URLSearchParams({source:tab,q:$('vq').value,language:$('vlang').value});
+    const {voices}=await (await api('/api/voices?'+p)).json();
+    if(!voices.length){box.innerHTML='<span class="q">Không có giọng nào. Thử đổi từ khoá hoặc ngôn ngữ.</span>';return}
+    box.innerHTML=voices.map((v,i)=>`<div class="v${voice&&voice.id===v.id?' sel':''}"><div class="n">${esc(v.name)}</div><div class="l">${esc(v.labels.join(' · '))}</div><div class="row">${v.preview?`<button data-p="${i}">▶ Nghe thử</button>`:''}<button data-s="${i}">${v.library?'Thêm &amp; chọn':'Chọn'}</button></div></div>`).join('');
+    box.onclick=async e=>{
+      const b=e.target.closest('button');if(!b)return;
+      if(b.dataset.p!==undefined){const a=new Audio(voices[+b.dataset.p].preview);a.play();return}
+      const v=voices[+b.dataset.s];b.disabled=true;
+      try{
+        let id=v.id;
+        if(v.library)id=(await (await api('/api/voices/add',{method:'POST',body:JSON.stringify({owner:v.owner,voice_id:v.id,name:v.name})})).json()).voice_id;
+        voice={id,name:v.name};LS('el_voice',JSON.stringify(voice));showVoice();loadVoices();
+      }catch(err){$('msg').textContent=err.message;b.disabled=false}
+    };
+  }catch(e){box.innerHTML='';$('msg').textContent=e.message}
+}
+$('tMine').onclick=()=>{tab='mine';$('tMine').classList.add('on');$('tLib').classList.remove('on');loadVoices()};
+$('tLib').onclick=()=>{tab='library';$('tLib').classList.add('on');$('tMine').classList.remove('on');loadVoices()};
+let vt;$('vq').oninput=()=>{clearTimeout(vt);vt=setTimeout(loadVoices,500)};$('vlang').onchange=loadVoices;
+
+$('seeNorm').onclick=async()=>{const r=await (await api('/api/normalize',{method:'POST',body:JSON.stringify({text:$('text').value})})).json();$('text').value=r.text;$('norm').checked=false;$('text').oninput()};
+$('go').onclick=async()=>{
+  $('msg').textContent='';$('go').disabled=true;$('go').textContent='Đang tạo…';
+  try{
+    const r=await api('/api/speak',{method:'POST',body:JSON.stringify({text:$('text').value,voice_id:voice&&voice.id,model:$('model').value,normalize:$('norm').checked,
+      settings:{stability:+$('stab').value,similarity:+$('sim').value,style:+$('sty').value,speed:+$('spd').value,boost:true}})});
+    const url=URL.createObjectURL(await r.blob());
+    $('player').src=url;$('player').hidden=false;$('player').play();$('dl').href=url;$('dl').hidden=false;
+  }catch(e){$('msg').textContent=e.message}
+  $('go').disabled=false;$('go').textContent='▶ Tạo giọng đọc';
+};
+if($('key').value)$('saveKey').click();
+</script>
+</body>
+</html>
